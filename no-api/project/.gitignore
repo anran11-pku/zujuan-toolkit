@@ -1,0 +1,33 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+
+# generated files
+zujuan-output/
+
+# local database (now stored in ~/.zujuan-scraper/)
+knowledge-tree.db
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# OCR models (large)
+*.traineddata
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Lock# package-lock.json
+package-lock.json
+
+# log File
+*.log
+
+# temporary local todo (not tracked)
+IMPROVEMENTS.todo.md

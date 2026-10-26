@@ -1,0 +1,170 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.visionOCRProcessor = exports.VisionOCRProcessor = void 0;
+const fs = __importStar(require("fs"));
+const openai_1 = require("openai");
+const config_1 = require("./config");
+const logger_1 = require("./logger");
+class VisionOCRProcessor {
+    /** 根据 API URL 构建 OpenAI 客户端，OpenRouter 需要额外头 */
+    buildClient(apiUrl, apiKey) {
+        const isOpenRouter = apiUrl.includes('openrouter.ai');
+        const options = {
+            apiKey,
+            baseURL: apiUrl,
+            timeout: 30000,
+        };
+        if (isOpenRouter) {
+            options.defaultHeaders = {
+                'HTTP-Referer': 'https://zujuan.xkw.com',
+                'X-OpenRouter-Title': 'Zujuan Scraper',
+            };
+        }
+        return new openai_1.OpenAI(options);
+    }
+    /** 将图片文件转为 base64 */
+    imageToBase64(imagePath) {
+        const buffer = fs.readFileSync(imagePath);
+        return buffer.toString('base64');
+    }
+    /** 去掉 Markdown 代码块包裹符号 */
+    stripCodeBlocks(content) {
+        return content
+            .replace(/^```markdown\s*/i, '')
+            .replace(/^```\s*/i, '')
+            .replace(/\s*```$/, '')
+            .trim();
+    }
+    /** 从文件路径判断 MIME 类型 */
+    getMimeType(imagePath) {
+        const ext = imagePath.split('.').pop()?.toLowerCase();
+        const map = {
+            png: 'image/png',
+            jpg: 'image/jpeg',
+            jpeg: 'image/jpeg',
+            gif: 'image/gif',
+            webp: 'image/webp',
+        };
+        return map[ext || ''] || 'image/png';
+    }
+    /**
+     * 调用视觉模型识别图片中的文字，返回 Markdown 格式内容。
+     * 数学公式使用 LaTeX 语法输出。
+     */
+    async imageToMarkdown(imagePath, options) {
+        const apiUrl = config_1.configManager.get('visionApiUrl');
+        const apiKey = config_1.configManager.get('visionApiKey');
+        const model = config_1.configManager.get('visionModel');
+        if (!apiUrl || !apiKey || !model) {
+            throw new Error('视觉 OCR 配置不完整（visionApiUrl/visionApiKey/visionModel 必填）');
+        }
+        const base64Data = this.imageToBase64(imagePath);
+        const mimeType = this.getMimeType(imagePath);
+        const client = this.buildClient(apiUrl, apiKey);
+        const response = await client.chat.completions.create({
+            model,
+            messages: [
+                {
+                    role: 'user',
+                    content: [
+                        {
+                            type: 'text',
+                            text: '请识别这张数学题目图片中的所有文字内容，并使用 Markdown 格式输出。数学公式请使用 LaTeX 语法（用 $ 或 $$ 包裹）。只输出题目本身，不要输出答案。',
+                        },
+                        {
+                            type: 'image_url',
+                            image_url: {
+                                url: `data:${mimeType};base64,${base64Data}`,
+                            },
+                        },
+                    ],
+                },
+            ],
+            max_tokens: 4096,
+        }, { signal: options?.signal });
+        const content = response.choices[0]?.message?.content;
+        if (!content) {
+            throw new Error('视觉模型返回内容为空');
+        }
+        logger_1.logger.log('verbose', '视觉 OCR 成功');
+        return this.stripCodeBlocks(content.trim());
+    }
+    /**
+     * 识别答案图片中的文字，忽略几何示意图、函数图像、坐标系图等。
+     * 只转写选项、解析、点评等纯文字内容。
+     */
+    async answerToMarkdown(imagePath, options) {
+        const apiUrl = config_1.configManager.get('visionApiUrl');
+        const apiKey = config_1.configManager.get('visionApiKey');
+        const model = config_1.configManager.get('visionModel');
+        if (!apiUrl || !apiKey || !model) {
+            throw new Error('视觉 OCR 配置不完整（visionApiUrl/visionApiKey/visionModel 必填）');
+        }
+        const base64Data = this.imageToBase64(imagePath);
+        const mimeType = this.getMimeType(imagePath);
+        const client = this.buildClient(apiUrl, apiKey);
+        const response = await client.chat.completions.create({
+            model,
+            messages: [
+                {
+                    role: 'user',
+                    content: [
+                        {
+                            type: 'text',
+                            text: '请识别这张图片中的所有文字内容，**忽略**所有几何示意图、函数图像、坐标系图、填充区域图等图形内容，只转写纯文字（如选项、答案编号、解析步骤、点评等）。使用 Markdown 格式输出。',
+                        },
+                        {
+                            type: 'image_url',
+                            image_url: {
+                                url: `data:${mimeType};base64,${base64Data}`,
+                            },
+                        },
+                    ],
+                },
+            ],
+            max_tokens: 4096,
+        }, { signal: options?.signal });
+        const content = response.choices[0]?.message?.content;
+        if (!content) {
+            throw new Error('视觉模型返回内容为空');
+        }
+        logger_1.logger.log('verbose', '视觉 OCR（答案）成功');
+        return this.stripCodeBlocks(content.trim());
+    }
+}
+exports.VisionOCRProcessor = VisionOCRProcessor;
+exports.visionOCRProcessor = new VisionOCRProcessor();
+//# sourceMappingURL=vision-ocr.js.map

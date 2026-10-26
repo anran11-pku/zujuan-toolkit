@@ -1,0 +1,17 @@
+**/node_modules/
+**/.runtime/
+**/data/
+**/output/
+**/zujuan-output/
+**/api.local.json
+**/.env
+**/.env.*
+!**/.env.example
+**/*storage-state*.json
+**/.browser-state.json
+**/*login-qr*.png
+**/*.log
+**/__pycache__/
+**/*.pyc
+.DS_Store
+Thumbs.db
